@@ -200,6 +200,10 @@ extern unsigned int kobjsize(const void *objp);
 # define VM_SOFTDIRTY	0
 #endif
 
+#ifdef CONFIG_POPCORN
+#define VM_FETCH_LOCAL	0x00800000
+#endif
+
 #define VM_MIXEDMAP	0x10000000	/* Can contain "struct page" and pure PFN pages */
 #define VM_HUGEPAGE	0x20000000	/* MADV_HUGEPAGE marked this vma */
 #define VM_NOHUGEPAGE	0x40000000	/* MADV_NOHUGEPAGE marked this vma */
@@ -1183,6 +1187,11 @@ static inline void clear_page_pfmemalloc(struct page *page)
 #define VM_FAULT_RETRY	0x0400	/* ->fault blocked, must retry */
 #define VM_FAULT_FALLBACK 0x0800	/* huge page fault failed, fall back to small */
 #define VM_FAULT_DONE_COW   0x1000	/* ->fault has fully handled COW */
+
+#ifdef CONFIG_POPCORN
+#define VM_FAULT_CONTINUE	0x1000
+#define VM_FAULT_KILLED		0x2000
+#endif
 
 #define VM_FAULT_HWPOISON_LARGE_MASK 0xf000 /* encodes hpage index for large hwpoison */
 
