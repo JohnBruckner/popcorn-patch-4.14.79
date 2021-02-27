@@ -3966,7 +3966,7 @@ static int handle_pte_fault(struct vm_fault *vmf)
 			return do_fault(vmf);
 	}
 #ifdef CONFIG_POPCORN
-    page_server_panic(true, vmf->vma->mm, vmf->address, vmf->pte, entry);
+    page_server_panic(true, vmf->vma->vm_mm, vmf->address, vmf->pte, entry);
 #endif
 	if (!pte_present(vmf->orig_pte))
 		return do_swap_page(vmf);
@@ -4016,8 +4016,8 @@ struct page *get_normal_page(struct vm_area_struct *vma, unsigned long addr, pte
 
 	page = alloc_zeroed_user_highpage_movable(vma, addr);
 	if (!page) return NULL;
-
-	if (mem_cgroup_try_charge(page, mm, GFP_KERNEL, &memcg)) {
+//mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg, false)
+	if (mem_cgroup_try_charge(page, mm, GFP_KERNEL, &memcg, false)) {
 		page_cache_release(page);
 		return NULL;
 	}

@@ -1137,7 +1137,7 @@ struct task_struct {
 	bool at_remote;			/* Is executing on behalf of another node? */
 
 	volatile void *remote_work;
-	struct completion remote_work_pended;
+	struct completion *remote_work_pended;
 
 	int migration_target_nid;
 	int backoff_weight;
