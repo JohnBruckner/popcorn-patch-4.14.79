@@ -70,6 +70,12 @@
 
 #include <asm/futex.h>
 
+#ifdef CONFIG_POPCORN
+#include <popcorn/types.h>
+#include <popcorn/process_server.h>
+#include <popcorn/page_server.h>
+#endif
+
 #include "locking/rtmutex_common.h"
 
 /*
@@ -2635,6 +2641,10 @@ static int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
 	struct futex_q q = futex_q_init;
 	int ret;
 
+#ifdef CONFIG_POPCORN
+struct fault_handle *fh = NULL;
+#endif
+
 	if (!bitset)
 		return -EINVAL;
 	q.bitset = bitset;
@@ -2655,7 +2665,15 @@ retry:
 	 * Prepare to wait on uaddr. On success, holds hb lock and increments
 	 * q.key refs.
 	 */
+#ifdef CONFIG_POPCORN
+    ret = page_server_get_userpage(uaddr, &fh, "wait");
+	if (ret < 0)
+		goto out;
+#endif
 	ret = futex_wait_setup(uaddr, val, flags, &q, &hb);
+#ifdef CONFIG_POPCORN
+    page_server_put_userpage(fh, "wait");
+#endif
 	if (ret)
 		goto out;
 
@@ -3537,6 +3555,15 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 		if (!futex_cmpxchg_enabled)
 			return -ENOSYS;
 	}
+#ifdef CONFIG_POPCORN
+    if (distributed_process(current)) {
+		// printk("  [%d] F %x %x %x %p\n", current->pid, op, flags, val, uaddr);
+		WARN_ON(cmd != FUTEX_WAIT &&
+				cmd != FUTEX_WAIT_BITSET &&
+				cmd != FUTEX_WAKE &&
+				cmd != FUTEX_WAKE_BITSET);
+	}
+#endif
 
 	switch (cmd) {
 	case FUTEX_WAIT:
@@ -3601,6 +3628,12 @@ SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
 	if (cmd == FUTEX_REQUEUE || cmd == FUTEX_CMP_REQUEUE ||
 	    cmd == FUTEX_CMP_REQUEUE_PI || cmd == FUTEX_WAKE_OP)
 		val2 = (u32) (unsigned long) utime;
+#ifdef CONFIG_POPCORN
+    if (distributed_remote_process(current)) {
+		return process_server_do_futex_at_remote(
+				uaddr, op, val, tp ? true : false, &ts, uaddr2, val2, val3);
+	}
+#endif
 
 	return do_futex(uaddr, op, val, tp, uaddr2, val2, val3);
 }

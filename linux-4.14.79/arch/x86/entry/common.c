@@ -32,6 +32,18 @@
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
 
+#ifdef CONFIG_POPCORN
+#include <popcorn/syscall_server.h>
+ #include <popcorn/types.h>
+/* If the system call is a popcorn system call , never
+ * redirect
+*/
+#define IS_PCN_SYSCALL(a) ((a == __NR_popcorn_migrate) \
+	|| (a == __NR_popcorn_propose_migration) \
+	|| (a == __NR_popcorn_get_thread_status) \
+	|| (a == __NR_popcorn_get_node_info))
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
 
