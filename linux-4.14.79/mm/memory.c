@@ -4006,7 +4006,7 @@ unlock:
 #ifdef CONFIG_POPCORN
 struct page *get_normal_page(struct vm_area_struct *vma, unsigned long addr, pte_t *pte)
 {
-
+    
 
 	if ((page = vm_normal_page(vma, addr, entry))) return page;
 
