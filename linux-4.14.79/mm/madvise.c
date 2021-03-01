@@ -47,9 +47,9 @@ static int madvise_need_mmap_write(int behavior)
 	case MADV_REMOVE:
 	case MADV_WILLNEED:
 	case MADV_DONTNEED:
-#ifdef CONFIG_POPCORN
-    case MADV_RELEASE:
-#endif
+// #ifdef CONFIG_POPCORN
+//     case MADV_RELEASE:
+// #endif
 	case MADV_FREE:
 		return 0;
 	default:
@@ -711,13 +711,13 @@ madvise_vma(struct vm_area_struct *vma, struct vm_area_struct **prev,
 		return madvise_remove(vma, prev, start, end);
 	case MADV_WILLNEED:
 		return madvise_willneed(vma, prev, start, end);
+    case MADV_FREE:
+	case MADV_DONTNEED:
+		return madvise_dontneed_free(vma, prev, start, end, behavior);
 #ifdef CONFIG_POPCORN
     case MADV_RELEASE:
 		return madvise_release(vma, start, end);
 #endif
-    case MADV_FREE:
-	case MADV_DONTNEED:
-		return madvise_dontneed_free(vma, prev, start, end, behavior);
 	default:
 		return madvise_behavior(vma, prev, start, end, behavior);
 	}
@@ -746,14 +746,14 @@ madvise_behavior_valid(int behavior)
 #endif
 	case MADV_DONTDUMP:
 	case MADV_DODUMP:
+#ifdef CONFIG_POPCORN
+    case MADV_RELEASE:
+#endif
 	case MADV_WIPEONFORK:
 	case MADV_KEEPONFORK:
 #ifdef CONFIG_MEMORY_FAILURE
 	case MADV_SOFT_OFFLINE:
 	case MADV_HWPOISON:
-#endif
-#ifdef CONFIG_POPCORN
-    case MADV_RELEASE:
 #endif
 		return true;
 
