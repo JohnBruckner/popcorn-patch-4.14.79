@@ -4029,8 +4029,8 @@ struct page *get_normal_page(struct vm_area_struct *vma, unsigned long addr, pte
 		entry = pte_mkwrite(pte_mkdirty(entry));
 
 	inc_mm_counter_fast(mm, MM_ANONPAGES);
-	page_add_new_anon_rmap(page, vma, addr);
-	mem_cgroup_commit_charge(page, memcg, false);
+	page_add_new_anon_rmap(page, vma, addr, false);
+	mem_cgroup_commit_charge(page, memcg, true, false);
 	lru_cache_add_active_or_unevictable(page, vma);
 
 	set_pte_at_notify(mm, addr, pte, entry);
@@ -4087,7 +4087,7 @@ int handle_pte_fault_origin(struct mm_struct *mm,
 	} else {
 		inc_mm_counter_fast(mm, MM_ANONPAGES);
 		page_add_new_anon_rmap(page, vma, address);
-		mem_cgroup_commit_charge(page, memcg, false);
+		mem_cgroup_commit_charge(page, memcg, true, false);
 		lru_cache_add_active_or_unevictable(page, vma);
 
 		set_pte_at(mm, address, pte, entry);
@@ -4112,7 +4112,7 @@ int cow_file_at_origin(struct mm_struct *mm, struct vm_area_struct *vma, unsigne
 	new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, addr);
 	if (!new_page) return VM_FAULT_OOM;
 
-	if (mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg)) {
+	if (mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg, true, false)) {
 		page_cache_release(new_page);
 		return VM_FAULT_OOM;
 	}
@@ -4135,7 +4135,7 @@ int cow_file_at_origin(struct mm_struct *mm, struct vm_area_struct *vma, unsigne
 
 	ptep_clear_flush_notify(vma, addr, pte);
 	page_add_new_anon_rmap(new_page, vma, addr);
-	mem_cgroup_commit_charge(new_page, memcg, false);
+	mem_cgroup_commit_charge(new_page, memcg, true, false);
 	lru_cache_add_active_or_unevictable(new_page, vma);
 
 	set_pte_at_notify(mm, addr, pte, entry);
