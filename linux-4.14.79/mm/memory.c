@@ -2967,6 +2967,7 @@ int do_swap_page(struct vm_fault *vmf)
 		goto out_release;
 	}
 
+
 	/*
 	 * Make sure try_to_free_swap or reuse_swap_page or swapoff did not
 	 * release the swapcache from under us.  The page pin, and pte_same
@@ -4005,10 +4006,7 @@ unlock:
 #ifdef CONFIG_POPCORN
 struct page *get_normal_page(struct vm_area_struct *vma, unsigned long addr, pte_t *pte)
 {
-	struct mm_struct *mm = vma->vm_mm;
-	struct mem_cgroup *memcg;
-	struct page *page;
-	pte_t entry = *pte;
+
 
 	if ((page = vm_normal_page(vma, addr, entry))) return page;
 
@@ -4044,14 +4042,31 @@ int handle_pte_fault_origin(struct mm_struct *mm,
 		struct vm_area_struct *vma, unsigned long address,
 		pte_t *pte, pmd_t *pmd, unsigned int flags)
 {
+    // (struct vm_area_struct *vma, unsigned long address,
+    //		unsigned int flags)
 	struct mem_cgroup *memcg;
 	struct page *page;
 	spinlock_t *ptl;
 	pte_t entry = *pte;
+
+	struct mm_struct *mm = vma->vm_mm;
+	struct mem_cgroup *memcg;
+
+	struct vm_fault vmf = {
+		.vma = vma, // func arg
+		.address = address & PAGE_MASK, // func arg
+		.flags = flags, // func arg
+      .pmd = pmd
+      .pte = entry
+      .orig_pte = pte
+		.pgoff = linear_page_index(vma, address),
+		.gfp_mask = __get_fault_gfp_mask(vma),
+	};
 	barrier();
 
 	if (!vma_is_anonymous(vma))
-		return do_fault(mm, vma, address, pte, pmd, flags, entry);
+	    return do_fault(vmf);
+//		return do_fault(mm, vma, address, pte, pmd, flags, entry);
 
 	/**
 	 * Following is for anonymous page. Almost same to do_anonymos_page
@@ -4068,7 +4083,7 @@ int handle_pte_fault_origin(struct mm_struct *mm,
 	if (!page)
 		return VM_FAULT_OOM;
 
-	if (mem_cgroup_try_charge(page, mm, GFP_KERNEL, &memcg)) {
+	if (mem_cgroup_try_charge(page, mm, GFP_KERNEL, &memcg, false)) {
 		put_page(page);
 		return VM_FAULT_OOM;
 	}
@@ -4082,11 +4097,11 @@ int handle_pte_fault_origin(struct mm_struct *mm,
 	pte = pte_offset_map_lock(mm, pmd, address, &ptl);
 	if (!pte_none(*pte)) {
 		/* Somebody already attached a page */
-		mem_cgroup_cancel_charge(page, memcg);
+		mem_cgroup_cancel_charge(page, memcg, false);
 		put_page(page);
 	} else {
 		inc_mm_counter_fast(mm, MM_ANONPAGES);
-		page_add_new_anon_rmap(page, vma, address);
+		page_add_new_anon_rmap(page, vma, address, false);
 		mem_cgroup_commit_charge(page, memcg, true, false);
 		lru_cache_add_active_or_unevictable(page, vma);
 
@@ -4112,7 +4127,7 @@ int cow_file_at_origin(struct mm_struct *mm, struct vm_area_struct *vma, unsigne
 	new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, addr);
 	if (!new_page) return VM_FAULT_OOM;
 
-	if (mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg, true, false)) {
+	if (mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg, false)) {
 		put_page(new_page);
 		return VM_FAULT_OOM;
 	}
@@ -4121,7 +4136,7 @@ int cow_file_at_origin(struct mm_struct *mm, struct vm_area_struct *vma, unsigne
 	BUG_ON(!old_page);
 	BUG_ON(PageAnon(old_page));
 
-	page_cache_get(old_page);
+	get_page(old_page);
 
 	copy_user_highpage(new_page, old_page, addr, vma);
 	__SetPageUptodate(new_page);
@@ -4134,14 +4149,14 @@ int cow_file_at_origin(struct mm_struct *mm, struct vm_area_struct *vma, unsigne
 	entry = maybe_mkwrite(pte_mkdirty(entry), vma);
 
 	ptep_clear_flush_notify(vma, addr, pte);
-	page_add_new_anon_rmap(new_page, vma, addr);
+	page_add_new_anon_rmap(new_page, vma, addr, false);
 	mem_cgroup_commit_charge(new_page, memcg, true, false);
 	lru_cache_add_active_or_unevictable(new_page, vma);
 
 	set_pte_at_notify(mm, addr, pte, entry);
 	update_mmu_cache(vma, addr, pte);
 
-	page_remove_rmap(old_page);
+	page_remove_rmap(old_page, false);
 	put_page(old_page);
 
 	return 0;
