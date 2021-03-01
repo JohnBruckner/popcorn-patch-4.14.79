@@ -4007,6 +4007,10 @@ unlock:
 struct page *get_normal_page(struct vm_area_struct *vma, unsigned long addr, pte_t *pte)
 {
 
+	struct mm_struct *mm = vma->vm_mm;
+	struct mem_cgroup *memcg;
+	struct page *page;
+	pte_t entry = *pte;
 
 	if ((page = vm_normal_page(vma, addr, entry))) return page;
 
@@ -4049,23 +4053,23 @@ int handle_pte_fault_origin(struct mm_struct *mm,
 	spinlock_t *ptl;
 	pte_t entry = *pte;
 
-	struct mm_struct *mm = vma->vm_mm;
-	struct mem_cgroup *memcg;
+	// struct mm_struct *mm = vma->vm_mm;
+	// struct mem_cgroup *memcg;
 
 	struct vm_fault vmf = {
 		.vma = vma, // func arg
 		.address = address & PAGE_MASK, // func arg
 		.flags = flags, // func arg
-      .pmd = pmd
-      .pte = entry
-      .orig_pte = pte
+      	.pmd = pmd,
+      	.pte = &entry,
+      	.orig_pte = pte,
 		.pgoff = linear_page_index(vma, address),
 		.gfp_mask = __get_fault_gfp_mask(vma),
 	};
 	barrier();
 
 	if (!vma_is_anonymous(vma))
-	    return do_fault(vmf);
+	    return do_fault(&vmf);
 //		return do_fault(mm, vma, address, pte, pmd, flags, entry);
 
 	/**
