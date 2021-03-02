@@ -18,6 +18,11 @@ static inline pte_t pte_make_valid(pte_t entry)
 	return entry;
 }
 
+static inline bool pte_is_present(pte_t entry)
+{
+	return (pte_val(entry) & _PAGE_PRESENT) == _PAGE_PRESENT;
+}
+
 #elif defined(CONFIG_ARM64)
 static inline unsigned long pte_flags(pte_t entry)
 {

@@ -660,10 +660,10 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 	}
 }
 
-int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
+int __pte_alloc(struct mm_struct *mm, pmd_t *pmd)
 {
 	spinlock_t *ptl;
-	pgtable_t new = pte_alloc_one(mm, address);
+	pgtable_t new = pte_alloc_one(mm);
 	if (!new)
 		return -ENOMEM;
 
@@ -694,9 +694,9 @@ int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
 	return 0;
 }
 
-int __pte_alloc_kernel(pmd_t *pmd, unsigned long address)
+int __pte_alloc_kernel(pmd_t *pmd)
 {
-	pte_t *new = pte_alloc_one_kernel(&init_mm, address);
+	pte_t *new = pte_alloc_one_kernel(&init_mm);
 	if (!new)
 		return -ENOMEM;
 
@@ -3333,7 +3333,7 @@ static int do_set_pmd(struct vm_fault *vmf, struct page *page)
 	 * related to pte entry. Use the preallocated table for that.
 	 */
 	if (arch_needs_pgtable_deposit() && !vmf->prealloc_pte) {
-		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm, vmf->address);
+		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			return VM_FAULT_OOM;
 		smp_wmb(); /* See comment in __pte_alloc() */
@@ -3570,8 +3570,7 @@ static int do_fault_around(struct vm_fault *vmf)
 			start_pgoff + nr_pages - 1);
 
 	if (pmd_none(*vmf->pmd)) {
-		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm,
-						  vmf->address);
+		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			goto out;
 		smp_wmb(); /* See comment in __pte_alloc() */
@@ -3936,10 +3935,21 @@ static int handle_pte_fault(struct vm_fault *vmf)
 		 * ptl lock held. So here a barrier will do.
 		 */
 		barrier();
+		if (pte_none(vmf->orig_pte)) {
+			pte_unmap(vmf->pte);
+			vmf->pte = NULL;
+		}
+	}
 #ifdef CONFIG_POPCORN
+		int ret;
+
         if (distributed_process(current)) {
-		int ret = page_server_handle_pte_fault(
-				vmf->vma->vm_mm, vmf->vma, vmf->address, vmf->pmd, vmf->pte, entry, vmf->flags);
+			if (pmd_none(*vmf->pmd)) {
+				if (__pte_alloc(vmf->vma->vm_mm, vmf->pmd))
+					return VM_FAULT_OOM;
+		}
+
+		ret = page_server_handle_pte_fault(vmf);
 		if (ret == VM_FAULT_RETRY) {
 			int backoff = ++current->backoff_weight;
 			PGPRINTK("  [%d] backoff %d\n", current->pid, backoff);
@@ -3954,11 +3964,6 @@ static int handle_pte_fault(struct vm_fault *vmf)
 		if (ret != VM_FAULT_CONTINUE) return ret;
 	}
 #endif
-		if (pte_none(vmf->orig_pte)) {
-			pte_unmap(vmf->pte);
-			vmf->pte = NULL;
-		}
-	}
 
 	if (!vmf->pte) {
 		if (vma_is_anonymous(vmf->vma))

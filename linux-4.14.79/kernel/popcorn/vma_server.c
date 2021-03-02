@@ -20,6 +20,7 @@
 #include <linux/highmem.h>
 #include <linux/ptrace.h>
 #include <linux/syscalls.h>
+#include <linux/sched/mm.h>
 
 #include <linux/elf.h>
 
