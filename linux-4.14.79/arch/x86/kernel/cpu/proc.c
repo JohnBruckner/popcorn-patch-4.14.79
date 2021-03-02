@@ -4,9 +4,9 @@
 #include <linux/string.h>
 #include <linux/seq_file.h>
 #include <linux/cpufreq.h>
+#include <popcorn/bundle.h>
 
 #include "cpu.h"
-#include <popcorn/bundle.h>
 
 extern void send_remote_cpu_info_request(unsigned int nid);
 extern unsigned int get_number_cpus_from_remote_node(unsigned int nid);

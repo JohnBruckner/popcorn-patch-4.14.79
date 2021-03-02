@@ -19,6 +19,8 @@
 #include <linux/mmu_context.h>
 #include <linux/fs.h>
 #include <linux/futex.h>
+#include <linux/sched/mm.h>
+#include <linux/uaccess.h>
 
 #include <asm/mmu_context.h>
 #include <asm/kdebug.h>

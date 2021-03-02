@@ -7,7 +7,9 @@
 #include <linux/workqueue.h>
 #include <linux/signal.h>
 #include <linux/slab.h>
+#include <linux/sched.h>
 #include <linux/radix-tree.h>
+#include <linux/sched/task.h>
 #include <popcorn/pcn_kmsg.h>
 #include <popcorn/regset.h>
 
