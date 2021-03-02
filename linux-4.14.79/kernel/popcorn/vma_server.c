@@ -2,7 +2,7 @@
  * @file vma_server.c
  *
  * Popcorn Linux VMA handler implementation
- * This work was an extension of David Katz MS Thesis, but totally rewritten 
+ * This work was an extension of David Katz MS Thesis, but totally rewritten
  * by Sang-Hoon to support multithread environment.
  *
  * @author Sang-Hoon Kim, SSRG Virginia Tech 2016-2017
@@ -11,7 +11,6 @@
  * @author Marina Sadini, Antonio Barbalace, SSRG Virginia Tech 2014
  * @author Marina Sadini, SSRG Virginia Tech 2013
  */
-
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/kthread.h>
@@ -19,10 +18,9 @@
 #include <linux/mman.h>
 #include <linux/highmem.h>
 #include <linux/ptrace.h>
-#include <linux/syscalls.h>
-
+#include <linux/sched/mm.h>
 #include <linux/elf.h>
-
+#include <linux/syscalls.h>
 #include <popcorn/types.h>
 #include <popcorn/bundle.h>
 
@@ -74,7 +72,7 @@ static unsigned long map_difference(struct mm_struct *mm, struct file *file,
 			VSPRINTK("  [%d] map0 %lx -- %lx @ %lx, %lx\n", current->pid,
 					start, end, pgoff, prot);
 			error = do_mmap_pgoff(file, start, end - start,
-					prot, flags, pgoff, &populate);
+					      prot, flags, pgoff, &populate, NULL);
 			if (error != start) {
 				ret = VM_FAULT_SIGBUS;
 			}
@@ -101,7 +99,7 @@ static unsigned long map_difference(struct mm_struct *mm, struct file *file,
 			VSPRINTK("  [%d] map1 %lx -- %lx @ %lx\n", current->pid,
 					start, vma->vm_start, pgoff);
 			error = do_mmap_pgoff(file, start, vma->vm_start - start,
-					prot, flags, pgoff, &populate);
+					      prot, flags, pgoff, &populate, NULL);
 			if (error != start) {
 				ret = VM_FAULT_SIGBUS;;
 			}
@@ -111,7 +109,7 @@ static unsigned long map_difference(struct mm_struct *mm, struct file *file,
 			VSPRINTK("  [%d] map2 %lx -- %lx @ %lx\n", current->pid,
 					start, vma->vm_start, pgoff);
 			error = do_mmap_pgoff(file, start, vma->vm_start - start,
-					prot, flags, pgoff, &populate);
+					      prot, flags, pgoff, &populate, NULL);
 			if (error != start) {
 				ret = VM_FAULT_SIGBUS;
 				break;
@@ -404,10 +402,9 @@ int vma_server_munmap_origin(unsigned long start, size_t len, int nid_except)
 				req->origin_pid, nid, start, len);
 		pcn_kmsg_send(PCN_KMSG_TYPE_VMA_OP_REQUEST, nid, req, sizeof(*req));
 		res = wait_at_station(ws);
-		pcn_kmsg_done(res);
 	}
-	put_task_remote(current);
 	kfree(req);
+	put_task_remote(current);
 
 	vm_munmap(start, len);
 	return 0;
@@ -487,7 +484,7 @@ static long __process_vma_op_at_origin(vma_op_request_t *req)
 		}
 		down_write(&mm->mmap_sem);
 		raddr = do_mmap_pgoff(f, req->addr, req->len, req->prot,
-				req->flags, req->pgoff, &populate);
+				      req->flags, req->pgoff, &populate, NULL);
 		up_write(&mm->mmap_sem);
 		if (populate) mm_populate(raddr, populate);
 
@@ -502,7 +499,7 @@ static long __process_vma_op_at_origin(vma_op_request_t *req)
 	}
 	case VMA_OP_BRK: {
 		unsigned long brk = req->brk;
-		req->brk = sys_brk(req->brk);
+		req->brk = ksys_brk(req->brk);
 		ret = brk != req->brk;
 		break;
 	}
@@ -510,18 +507,18 @@ static long __process_vma_op_at_origin(vma_op_request_t *req)
 		ret = vma_server_munmap_origin(req->addr, req->len, from_nid);
 		break;
 	case VMA_OP_MPROTECT:
-		ret = sys_mprotect(req->addr, req->len, req->prot);
+		ret = ksys_mprotect(req->addr, req->len, req->prot);
 		break;
 	case VMA_OP_MREMAP:
-		ret = sys_mremap(req->addr, req->old_len, req->new_len,
-			req->flags, req->new_addr);
+		ret = ksys_mremap(req->addr, req->old_len, req->new_len,
+				  req->flags, req->new_addr);
 		break;
 	case VMA_OP_MADVISE:
 		if (req->behavior == MADV_RELEASE) {
 			ret = process_madvise_release_from_remote(
 					from_nid, req->start, req->start + req->len);
 		} else {
-			ret = sys_madvise(req->start, req->len, req->behavior);
+			ret = ksys_madvise(req->start, req->len, req->behavior);
 		}
 		break;
 	default:
@@ -729,12 +726,8 @@ static int __update_vma(struct task_struct *tsk, vma_info_response_t *res)
 		goto out;
 	}
 
-	if (vma_info_anon(res) || vma_info_dev_zero(res)) {
+	if (vma_info_anon(res)) {
 		flags |= MAP_ANONYMOUS;
-		VSPRINTK("  [%d] anon file path: %u, dev zero backing: %u",
-			 tsk->pid,
-			 (unsigned int)vma_info_anon(res),
-			 (unsigned int)vma_info_dev_zero(res));
 	} else {
 		f = filp_open(res->vm_file_path, O_RDONLY | O_LARGEFILE, 0);
 		if (IS_ERR(f)) {

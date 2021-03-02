@@ -44,6 +44,8 @@ const enum popcorn_arch my_arch =
 	POPCORN_ARCH_ARM;
 #elif defined(CONFIG_PPC64)
 	POPCORN_ARCH_PPC;
+#elif defined (CONFIG_RISCV)
+	POPCORN_ARCH_RISCV;
 #else
 	POPCORN_ARCH_UNKNOWN;
 #endif
@@ -59,6 +61,7 @@ const char *archs_sz[] = {
 	"aarch64",
 	"x86_64",
 	"ppc64le",
+	"riscv64",
 };
 
 

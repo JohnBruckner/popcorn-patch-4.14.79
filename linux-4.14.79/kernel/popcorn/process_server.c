@@ -2,7 +2,7 @@
  * @file process_server.c
  *
  * Popcorn Linux thread migration implementation
- * This work was an extension of David Katz MS Thesis, but totally rewritten 
+ * This work was an extension of David Katz MS Thesis, but totally rewritten
  * by Sang-Hoon to support multithread environment.
  *
  * @author Sang-Hoon Kim, SSRG Virginia Tech 2017
@@ -22,24 +22,28 @@
 #include <linux/sched/mm.h>
 #include <linux/uaccess.h>
 
+#include<linux/kprobes.h>
 #include <asm/mmu_context.h>
 #include <asm/kdebug.h>
-#include <asm/uaccess.h>
+#include <linux/signal.h>
+//#include <asm/uaccess.h>
 
 #include <popcorn/types.h>
 #include <popcorn/bundle.h>
 #include <popcorn/cpuinfo.h>
-
+#include "syscall_redirect.h"
 #include "types.h"
 #include "process_server.h"
 #include "vma_server.h"
 #include "page_server.h"
+#include "syscall_server.h"
 #include "wait_station.h"
 #include "util.h"
-#include "syscall_server.h"
 
 static struct list_head remote_contexts[2];
 static spinlock_t remote_contexts_lock[2];
+
+int handle_signal_remotes(struct pcn_kmsg_message  *msg);
 
 enum {
 	INDEX_OUTBOUND = 0,
@@ -131,6 +135,7 @@ static struct remote_context *__alloc_remote_context(int nid, int tgid, bool rem
 
 	rc->tgid = tgid;
 	rc->for_remote = remote;
+	rc->sigpending = 0;
 
 	for (i = 0; i < FAULTS_HASH; i++) {
 		INIT_HLIST_HEAD(&rc->faults[i]);
@@ -171,7 +176,7 @@ static void __build_task_comm(char *buffer, char *path)
 // Distributed mutex
 ///////////////////////////////////////////////////////////////////////////////
 long process_server_do_futex_at_remote(u32 __user *uaddr, int op, u32 val,
-		bool valid_ts, struct timespec *ts,
+		bool valid_ts, struct timespec64 *ts,
 		u32 __user *uaddr2,u32 val2, u32 val3)
 {
 	struct wait_station *ws = get_wait_station(current);
@@ -230,8 +235,8 @@ static void process_remote_futex_request(remote_futex_request *req)
 	remote_futex_response *res;
 	ktime_t t, *tp = NULL;
 
-	if (timespec_valid(&req->ts)) {
-		t = timespec_to_ktime(req->ts);
+	if (timespec64_valid(&req->ts)) {
+		t = timespec64_to_ktime(req->ts);
 		t = ktime_add_safe(ktime_get(), t);
 		tp = &t;
 	}
@@ -336,6 +341,8 @@ int process_server_task_exit(struct task_struct *tsk)
 			tsk->at_remote ? "remote" : "local",
 			tsk->is_worker ? " worker": "",
 			tsk->exit_code);
+	//dump_stack();
+	do_send_sig_info(SIGABRT, SEND_SIG_PRIV, current, true);
 
 	// show_regs(task_pt_regs(tsk));
 
@@ -373,7 +380,7 @@ static void process_remote_task_exit(remote_task_exit_t *req)
 
 	exit_code = req->exit_code;
 	pcn_kmsg_done(req);
-	printk(KERN_INFO "exit_code: %d",exit_code);
+
 	if (exit_code & CSIGNAL) {
 		force_sig(exit_code & CSIGNAL, tsk);
 	}
@@ -449,7 +456,7 @@ static int __do_back_migration(struct task_struct *tsk, int dst_nid, void __user
 
 	req->personality = tsk->personality;
 
-
+	/*
 	req->remote_blocked = tsk->blocked;
 	req->remote_real_blocked = tsk->real_blocked;
 	req->remote_saved_sigmask = tsk->saved_sigmask;
@@ -457,6 +464,7 @@ static int __do_back_migration(struct task_struct *tsk, int dst_nid, void __user
 	req->sas_ss_sp = tsk->sas_ss_sp;
 	req->sas_ss_size = tsk->sas_ss_size;
 	memcpy(req->action, tsk->sighand->action, sizeof(req->action));
+	*/
 
 	ret = copy_from_user(&req->arch.regsets, uregs,
 			regset_size(get_popcorn_node_arch(dst_nid)));
@@ -535,17 +543,18 @@ static int remote_thread_main(void *_args)
 	/* Inject thread info here */
 	restore_thread_info(&req->arch, true);
 
-	/* XXX: Skip restoring signals and handlers for now */
+	/* XXX: Skip restoring signals and handlers for now
 	sigorsets(&current->blocked, &current->blocked, &req->remote_blocked);
 	sigorsets(&current->real_blocked,
 			&current->real_blocked, &req->remote_real_blocked);
 	sigorsets(&current->saved_sigmask,
 			&current->saved_sigmask, &req->remote_saved_sigmask);
-	current->pending.signal = req->remote_pending.signal;
+	current->pending = req->remote_pending;
 	current->sas_ss_sp = req->sas_ss_sp;
 	current->sas_ss_size = req->sas_ss_size;
 	memcpy(current->sighand->action, req->action, sizeof(req->action));
-	
+	*/
+
 	__pair_remote_task();
 
 	PSPRINTK("\n####### MIGRATED - [%d/%d] from [%d/%d]\n",
@@ -576,13 +585,17 @@ static int __construct_mm(clone_request_t *req, struct remote_context *rc)
 {
 	struct mm_struct *mm;
 	struct file *f;
+	struct rlimit rlim_stack;
 
 	mm = mm_alloc();
 	if (!mm) {
 		return -ENOMEM;
 	}
+	task_lock(current->group_leader);
+	rlim_stack = current->signal->rlim[RLIMIT_STACK];
+	task_unlock(current->group_leader);
 
-	arch_pick_mmap_layout(mm);
+	arch_pick_mmap_layout(mm, &rlim_stack);
 
 	f = filp_open(req->exe_path, O_RDONLY | O_LARGEFILE | O_EXCL, 0);
 	if (IS_ERR(f)) {
@@ -614,6 +627,7 @@ static int __construct_mm(clone_request_t *req, struct remote_context *rc)
 
 	return 0;
 }
+
 
 static void __terminate_remote_threads(struct remote_context *rc)
 {
@@ -662,6 +676,9 @@ static void __run_remote_worker(struct remote_context *rc)
 		case PCN_KMSG_TYPE_TASK_EXIT_ORIGIN:
 			process_origin_task_exit(rc, (origin_task_exit_t *)msg);
 			break;
+		case PCN_KMSG_TYPE_SIGNAL_FWD:
+			handle_signal_remotes(msg);
+                        break;
 		default:
 			printk("Unknown remote work type %d\n", msg->header.type);
 			break;
@@ -718,7 +735,7 @@ static int remote_worker_main(void *data)
 
 	get_task_remote(current);
 	rc->tgid = current->tgid;
-	
+
 	__run_remote_worker(rc);
 
 	__terminate_remote_threads(rc);
@@ -857,7 +874,25 @@ static void __process_remote_works(void)
 		req = (struct pcn_kmsg_message *)current->remote_work;
 		current->remote_work = NULL;
 		smp_wmb();
-
+		/*
+                *Check if a restart is triggered for systemcall
+                *If yes trigger the signal to remote node
+                *For now only SIGINT is handled
+                */
+                if (ret == -ERESTARTSYS)
+                {
+                        unsigned long flags;
+                        spin_lock_irqsave(&current->sighand->siglock, flags);
+                        if (current->signal->flags &
+                                        (SIGNAL_GROUP_COREDUMP| SIGNAL_GROUP_EXIT))
+                        {
+                                remote_signalling(SIGINT , current , 1);
+                                run = false;
+                        }
+                        spin_unlock_irqrestore(
+                                        &current->sighand->siglock, flags);
+                        continue;
+               }
 		if (!req) continue;
 
 		switch (req->header.type) {
@@ -938,7 +973,7 @@ static int __request_clone_remote(int dst_nid, struct task_struct *tsk, void __u
 
 	req->personality = tsk->personality;
 
-	/* Signals and handlers */
+	/* Signals and handlers
 	req->remote_blocked = tsk->blocked;
 	req->remote_real_blocked = tsk->real_blocked;
 	req->remote_saved_sigmask = tsk->saved_sigmask;
@@ -946,7 +981,7 @@ static int __request_clone_remote(int dst_nid, struct task_struct *tsk, void __u
 	req->sas_ss_sp = tsk->sas_ss_sp;
 	req->sas_ss_size = tsk->sas_ss_size;
 	memcpy(req->action, tsk->sighand->action, sizeof(req->action));
-
+	*/
 
 	/* Register sets from userspace */
 	ret = copy_from_user(&req->arch.regsets, uregs,
