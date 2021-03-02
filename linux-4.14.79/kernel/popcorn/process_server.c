@@ -831,7 +831,7 @@ int request_remote_work(pid_t pid, struct pcn_kmsg_message *req)
 	} else {
 		BUG_ON(tsk->remote_work);
 		tsk->remote_work = req;
-		complete(&tsk->remote_work_pended); /* implicit memory barrier */
+		complete(tsk->remote_work_pended); /* implicit memory barrier */
 	}
 
 	put_task_struct(tsk);
@@ -851,7 +851,7 @@ static void __process_remote_works(void)
 		struct pcn_kmsg_message *req;
 		long ret;
 		ret = wait_for_completion_interruptible_timeout(
-				&current->remote_work_pended, HZ);
+				current->remote_work_pended, HZ);
 		if (ret == 0) continue; /* timeout */
 
 		req = (struct pcn_kmsg_message *)current->remote_work;
