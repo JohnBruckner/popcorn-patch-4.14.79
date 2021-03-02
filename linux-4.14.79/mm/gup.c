@@ -18,14 +18,12 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
-#include "internal.h"
-
-
 #ifdef CONFIG_POPCORN
 #include <popcorn/process_server.h>
 #include <popcorn/vma_server.h>
 #endif
 
+#include "internal.h"
 
 static struct page *no_page_table(struct vm_area_struct *vma,
 		unsigned int flags)
