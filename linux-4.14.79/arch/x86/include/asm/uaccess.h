@@ -11,6 +11,7 @@
 #include <asm/page.h>
 #include <asm/smap.h>
 #include <asm/extable.h>
+#include <asm/current.h>
 
 /*
  * The fs value determines whether argument validity checking should be
