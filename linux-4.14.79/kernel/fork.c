@@ -608,7 +608,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	}
 
 	tsk->remote_work = NULL;
-	init_completion(&tsk->remote_work_pended);
+	init_completion((tsk->remote_work_pended));
 
 	tsk->migration_target_nid = -1;
 	tsk->backoff_weight = 0;
